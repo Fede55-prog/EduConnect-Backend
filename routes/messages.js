@@ -114,6 +114,12 @@ router.post("/:conversationId/message", verifyToken, async (req, res) => {
   }
 
   try {
+    // Get sender details for real-time display
+    const senderDetails = await pool.query(
+      `SELECT first_name, last_name, avatar FROM student WHERE stu_id = $1`,
+      [senderId]
+    );
+
     const msg = await pool.query(
       `INSERT INTO messages (conversation_id, sender_id, content)
        VALUES ($1, $2, $3)
@@ -123,14 +129,22 @@ router.post("/:conversationId/message", verifyToken, async (req, res) => {
 
     const message = msg.rows[0];
 
+    // Add sender details to the message for real-time display
+    const messageWithSender = {
+      ...message,
+      first_name: senderDetails.rows[0]?.first_name,
+      last_name: senderDetails.rows[0]?.last_name,
+      avatar: senderDetails.rows[0]?.avatar
+    };
+
     // Emit to all users in that conversation via Socket.IO
     if (ioInstance) {
       ioInstance
         .to(`conversation_${conversationId}`)
-        .emit("receive_message", message);
+        .emit("receive_message", messageWithSender);
     }
 
-    res.json({ success: true, message });
+    res.json({ success: true, message: messageWithSender });
   } catch (err) {
     console.error("Send message error:", err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -162,7 +176,6 @@ router.get("/:conversationId/messages", verifyToken, async (req, res) => {
 });
 
 module.exports = { router, setSocket };
-
 
 
 
