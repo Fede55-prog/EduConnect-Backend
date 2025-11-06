@@ -6,17 +6,7 @@ const { checkDiscussionContent } = require("../utils/aiModeration");
 
 const router = express.Router();
 
-/**
- * ============================
- *  GET ALL POSTS (module-aware)
- *  - requires auth to know viewer
- *  - shows posts where:
- *      * post.module_id IN (viewer subscribed ∪ enrolled)
- *      * plus optional general posts (module_id IS NULL) when include_general=true (default)
- *  Query params:
- *    page, limit, category, search, sort, include_general
- * ============================
- */
+
 router.get("/posts", authMiddleware, async (req, res) => {
   const {
     page = 1,
@@ -129,9 +119,9 @@ router.get("/posts", authMiddleware, async (req, res) => {
 });
 
 /**
- * ===============================================
- *  GET SINGLE POST (with comments) + module info
- * ===============================================
+
+ * GET SINGLE POST (with comments) + module info
+
  */
 router.get("/posts/:id", async (req, res) => {
   try {
@@ -404,40 +394,56 @@ router.post("/posts/:id/like", async (req, res) => {
 
 /**
  * ===============================================
- *  TRENDING POSTS
+ *  TRENDING POSTS - 4 MOST VIEWED POSTS
  * ===============================================
  */
 router.get("/trending", async (req, res) => {
   try {
-    const r = await pool.query(`
-      SELECT d.id, d.title, d.views, d.likes,
-             s.first_name AS author_first_name,
-             s.last_name  AS author_last_name,
-             s.avatar     AS author_avatar
-      FROM discussions d
-      LEFT JOIN student s ON d.student_id = s.stu_id
-      ORDER BY (d.views + d.likes) DESC
-      LIMIT 5
-    `);
+    const { limit = 4 } = req.query;
+    
+    const result = await pool.query(
+      `SELECT 
+        d.id,
+        d.title,
+        d.content,
+        d.views,
+        d.likes,
+        d.created_at,
+        d.category,
+        s.first_name,
+        s.last_name,
+        s.avatar
+       FROM discussions d
+       JOIN student s ON d.student_id = s.stu_id
+       ORDER BY d.views DESC, d.likes DESC
+       LIMIT $1`,
+      [parseInt(limit)]
+    );
 
-    const trending = r.rows.map((t) => ({
-      id: t.id,
-      title: t.title,
-      views: t.views,
-      likes: t.likes,
-      author: {
-        first_name: t.author_first_name,
-        last_name: t.author_last_name,
-        avatar: t.author_avatar,
-      },
+    const discussions = result.rows.map(d => ({
+      id: d.id,
+      title: d.title,
+      content: d.content,
+      views: d.views,
+      likes: d.likes,
+      created_at: d.created_at,
+      category: d.category,
+      first_name: d.first_name,
+      last_name: d.last_name,
+      avatar: d.avatar
     }));
 
-    if (req.io) req.io.emit("trending_update", trending);
-
-    return res.json({ success: true, trending });
+    return res.json({ 
+      success: true, 
+      discussions,
+      message: `Found ${discussions.length} trending discussions`
+    });
   } catch (err) {
-    console.error("Trending error:", err);
-    return res.status(500).json({ success: false, message: "Error fetching trending topics" });
+    console.error("Error fetching trending discussions:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error fetching trending discussions" 
+    });
   }
 });
 
